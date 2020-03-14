@@ -1,0 +1,648 @@
+---
+title: "Employee Attrition for Frito Lay"
+author: "Daanesh Ibrahim"
+date: "March 13, 2020"
+output: 
+     html_document: default
+     word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Introduction
+Frito Lay has asked us to look into their talent management solutions. We were given three data sets which included a wide variety of information from their existing employees (such as Salary, Job Roles, Age, etc.). We do not have the actual reason an employee chose to leave the company (or stay), however we were able to use the data given to create and validate an attrition classification model. Also we built a predictive model for an employee's monthly income. You can find the prediction results and final presentation of this project in the links below:
+
+#### GitHub Repo: https://github.com/daaneshi/CaseStudy2DDS
+
+
+
+#Analysis
+####Downloading and Importing the Data
+```{r Data Import}
+
+#Importing the raw case study file
+EmpData <-read.csv(file.choose(), header = TRUE, sep = ",")
+head(EmpData)
+str(EmpData)
+#Importing Attrition File
+Attr_Data <-read.csv(file.choose(), header = TRUE, sep = ",")
+str(Attr_Data)
+#Importing Salary File
+Income_Data <-read.csv(file.choose(), header = TRUE, sep = ",")
+str(Income_Data)
+head(Income_Data)
+```
+
+##Initial Exploratory Plots
+```{r EmpData plots}
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(purrr)
+library(corrplot)
+library(caret)
+library(e1071)
+library(leaps)
+library(ggrepel)
+
+#Bar graphs for only the factor variables
+EmpData %>% keep(is.factor) %>%
+gather() %>%
+ggplot(aes(value)) +
+facet_wrap(~ key, scales="free") +
+coord_flip() + 
+geom_bar() +
+theme(axis.text.x=element_text(size=7, angle=45, vjust=1, hjust=1),
+      axis.text.y=element_text(size=6))
+#Histogram of only the integer variables
+EmpData %>% keep(is.integer) %>%
+gather() %>%
+ggplot(aes(value)) +
+facet_wrap(~ key, scales="free") +
+coord_flip() + 
+geom_histogram() +
+theme(axis.text.x=element_text(size=7, angle=45, vjust=1, hjust=1),
+      axis.text.y=element_text(size=6),
+      strip.text = element_text(size=6))
+```
+
+##Cleaning Datasets  
+
+####Right off the bat we can eliminate 3 columns due to them having the same value for every row:
+- Over18 ('Y' in every row)
+- EmployeeCount ('1' in every row)
+- StandardHours ('80' in every row)
+
+####Variables initially classified as integars should actually be categorical and therefore will be converted to factors
+```{r Clean EmpData Attr_Data and Income_data}
+##Removing Over18, EmployeeCount, and StandardHours variables
+EmpData2 <- EmpData[,-c(10, 23, 28)]
+str(EmpData2)
+#Changing Rating Variables seen as Integers to Factors
+EmpData2$Education <- as.factor(EmpData2$Education)
+EmpData2$EnvironmentSatisfaction <- as.factor(EmpData2$EnvironmentSatisfaction)
+EmpData2$JobInvolvement <- as.factor(EmpData2$JobInvolvement)
+EmpData2$JobLevel <- as.factor(EmpData2$JobLevel)
+EmpData2$JobSatisfaction <- as.factor(EmpData2$JobSatisfaction)
+EmpData2$PerformanceRating <- as.factor(EmpData2$PerformanceRating)
+EmpData2$RelationshipSatisfaction <- as.factor(EmpData2$RelationshipSatisfaction)
+EmpData2$StockOptionLevel <- as.factor(EmpData2$StockOptionLevel)
+EmpData2$TrainingTimesLastYear <- as.factor(EmpData2$TrainingTimesLastYear)
+EmpData2$WorkLifeBalance <- as.factor(EmpData2$WorkLifeBalance)
+#NA Check
+colSums(is.na(EmpData2))
+#cleaning Attriction Validation File
+##Removing Over18, EmployeeCount, and StandardHours variables
+Attr_Data <- Attr_Data[,-c(9, 22, 27)]
+str(Attr_Data)
+#Casting Rating Variables as Factors
+Attr_Data$Education <- as.factor(Attr_Data$Education)
+Attr_Data$EnvironmentSatisfaction <- as.factor(Attr_Data$EnvironmentSatisfaction)
+Attr_Data$JobInvolvement <- as.factor(Attr_Data$JobInvolvement)
+Attr_Data$JobLevel <- as.factor(Attr_Data$JobLevel)
+Attr_Data$JobSatisfaction <- as.factor(Attr_Data$JobSatisfaction)
+Attr_Data$PerformanceRating <- as.factor(Attr_Data$PerformanceRating)
+Attr_Data$RelationshipSatisfaction <- as.factor(Attr_Data$RelationshipSatisfaction)
+Attr_Data$StockOptionLevel <- as.factor(Attr_Data$StockOptionLevel)
+Attr_Data$TrainingTimesLastYear <- as.factor(Attr_Data$TrainingTimesLastYear)
+Attr_Data$WorkLifeBalance <- as.factor(Attr_Data$WorkLifeBalance)
+#cleaning Income Prediction File
+##Removing Over18, EmployeeCount, and StandardHours variables
+Income_Data <- Income_Data[,-c(10, 22, 27)]
+str(Income_Data)
+#Casting Rating Variables as Factors
+Income_Data$Education <- as.factor(Income_Data$Education)
+Income_Data$EnvironmentSatisfaction <- as.factor(Income_Data$EnvironmentSatisfaction)
+Income_Data$JobInvolvement <- as.factor(Income_Data$JobInvolvement)
+Income_Data$JobLevel <- as.factor(Income_Data$JobLevel)
+Income_Data$JobSatisfaction <- as.factor(Income_Data$JobSatisfaction)
+Income_Data$PerformanceRating <- as.factor(Income_Data$PerformanceRating)
+Income_Data$RelationshipSatisfaction <- as.factor(Income_Data$RelationshipSatisfaction)
+Income_Data$StockOptionLevel <- as.factor(Income_Data$StockOptionLevel)
+Income_Data$TrainingTimesLastYear <- as.factor(Income_Data$TrainingTimesLastYear)
+Income_Data$WorkLifeBalance <- as.factor(Income_Data$WorkLifeBalance)
+```
+
+##Correlation Plots
+```{r correlations plots}
+
+
+
+
+#Testing to see if the Integer Variables have Correlation with each other
+EmpCor <- cor(EmpData2 %>% keep(is.integer))
+col <- colorRampPalette(c("#BB4444", "#EE9988", "#FFFFFF", "#77AADD", "#4477AA"))
+cex.before <- par("cex")
+par(cex = 0.7)
+corrplot(EmpCor, method="color", col=col(200),  
+         type="full", order="hclust", 
+         addCoef.col = "black", # Add coefficient of correlation
+         tl.cex = 1/par("cex"),
+         cl.cex = 1/par("cex"),
+         tl.col="black", tl.srt=90, #Text label color and rotation
+         # hide correlation coefficient on the principal diagonal
+         diag=TRUE)
+         par(cex = cex.before)
+
+```
+
+##Attrition Frequencies
+```{r Attrition}
+#Creating Attrition Proportion Tables
+TotalAT <- table(EmpData2$Attrition)
+BusTravAT <- table(EmpData2$BusinessTravel,EmpData2$Attrition)
+DeptAT <- table(EmpData2$Department,EmpData2$Attrition)
+EduFieldAT <- table(EmpData2$EducationField,EmpData2$Attrition)
+GenderAT <- table(EmpData2$Gender,EmpData2$Attrition)
+RoleAT <- table(EmpData2$JobRole,EmpData2$Attrition)
+MaritalAT <- table(EmpData2$MaritalStatus,EmpData2$Attrition)
+OverTimeAT <- table(EmpData2$OverTime,EmpData2$Attrition)
+EducationAT <- table(EmpData2$Education,EmpData2$Attrition)
+EnvirSatAT <- table(EmpData2$EnvironmentSatisfaction,EmpData2$Attrition)
+JobInvAT <- table(EmpData2$JobInvolvement,EmpData2$Attrition)
+JobLevAT <- table(EmpData2$JobLevel,EmpData2$Attrition)
+JobSatAT <- table(EmpData2$JobSatisfaction,EmpData2$Attrition)
+PerRatAT <- table(EmpData2$PerformanceRating,EmpData2$Attrition)
+RelSatAT <- table(EmpData2$RelationshipSatisfaction,EmpData2$Attrition)
+StockAT <- table(EmpData2$StockOptionLevel,EmpData2$Attrition)
+TrainTimeAT <- table(EmpData2$TrainingTimesLastYear,EmpData2$Attrition)
+WorkLifeAT <- table(EmpData2$WorkLifeBalance,EmpData2$Attrition)
+#Getting Percentages
+Total_Table <- prop.table(TotalAT)
+BusTrav_Table <- data.frame(prop.table(BusTravAT, 1))
+Dept_Table <- data.frame(prop.table(DeptAT, 1) )
+EduFieldAT_Table <- data.frame(prop.table(EduFieldAT, 1) )
+Gender_Table <- data.frame(prop.table(GenderAT, 1)) 
+Role_Table <- data.frame(prop.table(RoleAT, 1) )
+Marital_Table <- data.frame(prop.table(MaritalAT, 1)) 
+OverTime_Table <- data.frame(prop.table(OverTimeAT, 1)) 
+Education_Table <- data.frame(prop.table(EducationAT, 1))
+EnvirSat_Table <- data.frame(prop.table(EnvirSatAT, 1)) 
+JobInv_Table <- data.frame(prop.table(JobInvAT, 1)) 
+JobLev_Table <- data.frame(prop.table(JobLevAT, 1)) 
+JobSat_Table <- data.frame(prop.table(JobSatAT, 1)) 
+PerRat_Table <- data.frame(prop.table(PerRatAT, 1)) 
+RelSat_Table <- data.frame(prop.table(RelSatAT, 1)) 
+Stock_Table <- data.frame(prop.table(StockAT, 1)) 
+TrainTime_Table <- data.frame(prop.table(TrainTimeAT, 1)) 
+WorkLife_Table <- data.frame(prop.table(WorkLifeAT, 1)) 
+#Testing significance of difference in attrition between levels of each variable
+prop.test(BusTravAT, correct=FALSE) #sig, p-value = 0.04993
+prop.test(DeptAT, correct=FALSE) #sig, p-value = 0.009424
+prop.test(EduFieldAT, correct=FALSE) ##insig, p-value = 0.2682
+prop.test(GenderAT, correct=FALSE) #insig, p-value = 0.4564
+prop.test(RoleAT, correct=FALSE) ##sig, p-value = 3.647e-10
+prop.test(MaritalAT, correct=FALSE) #sig, p-value = 3.379e-08
+prop.test(OverTimeAT, correct=FALSE) #sig, p-value = 1.024e-15
+prop.test(EducationAT, correct=FALSE) ##insig, p-value = 0.6243
+prop.test(EnvirSatAT, correct=FALSE) #sig, p-value = 0.01054
+prop.test(JobInvAT, correct=FALSE) #sig, p-value = 5.211e-09
+prop.test(JobLevAT, correct=FALSE) #sig, p-value = 2.085e-08
+prop.test(JobSatAT, correct=FALSE) #sig, p-value = 0.01115
+prop.test(PerRatAT, correct=FALSE) #insig, p-value = 0.6511
+prop.test(RelSatAT, correct=FALSE) #insig, p-value = 0.3727
+prop.test(StockAT, correct=FALSE) #sig, p-value = 3.724e-12
+prop.test(TrainTimeAT, correct=FALSE) ##insig, p-value = 0.1192
+prop.test(WorkLifeAT, correct=FALSE) #sig, p-value = 0.002495
+prop.test(table(EmpData2$Age, EmpData2$Attrition), correct=FALSE) ##sig, p-value = 0.0004559
+prop.test(table(EmpData2$DailyRate, EmpData2$Attrition), correct=FALSE) ##insig, p-value = 0.3944
+prop.test(table(EmpData2$DistanceFromHome, EmpData2$Attrition), correct=FALSE) ##sig, p-value = 0.04102
+prop.test(table(EmpData2$HourlyRate, EmpData2$Attrition), correct=FALSE) ##insig, p-value = 0.1653
+prop.test(table(EmpData2$MonthlyRate, EmpData2$Attrition), correct=FALSE) ##insig, p-value = 0.5366
+prop.test(table(EmpData2$MonthlyIncome, EmpData2$Attrition), correct=FALSE) ##insig, p-value = 0.5485
+prop.test(table(EmpData2$TotalWorkingYears, EmpData2$Attrition), correct=FALSE) ##sig, p-value = 0.0004072
+prop.test(table(EmpData2$YearsAtCompany, EmpData2$Attrition), correct=FALSE) ##sig, p-value = 7.894e-05
+prop.test(table(EmpData2$YearsInCurrentRole, EmpData2$Attrition), correct=FALSE) ##sig, p-value = 0.0007929
+prop.test(table(EmpData2$YearsSinceLastPromotion, EmpData2$Attrition), correct=FALSE) ##insig, p-value = 0.1294
+```
+####Using X2 tests (Chi-Squared tests) we compare the attrition rate with thr levels of each variable and test for significances (alpha = 0.05)
+,
+####These variables do not have a significant difference in the Attrition rate:
+- Education Field
+- Education (level)
+- Gender of Employee
+- Performance Rating
+- Relationship Satisfaction
+- Training Time
+- Daily Rate
+- Hourly Rate
+- Monthly Income
+- Years Since Last Promotion
+
+####The following factors appear to have the strongest impact on employee attrition:
+1) Overtime (p = 1.024e-15)
+2) Stock Option Level (p = 3.724e-12)
+3) Job Involvement (p = 5.211e-09)
+4) Job Level (p = 2.085e-08)
+5) Marital Status (p = 3.379e-08)
+
+
+##Plotting only variables that have significant impact on Attrition Rate (%)
+```{r PlotsAT}
+#Plotting Attrition Perctages for Categorical Variables
+ggplot(data=BusTrav_Table, aes(x=Var1, y=Freq, fill=Var2)) +
+  geom_bar(stat="identity", position=position_dodge()) +
+  theme(
+        panel.background = element_rect(fill = 'ivory1'),
+        plot.title = element_text(hjust = 0.5, size=15),
+        axis.text.y = element_text(size=8),
+        axis.title.x = element_text(color="forestgreen", vjust=-0.35, size=15),
+        axis.title.y = element_text(color="cadetblue" , vjust=0.35, size=15)   
+        ) +
+  labs(fill = "Attrition") +
+  ggtitle("Business Travel Attrition")+ 
+  xlab("Variables")
+
+ggplot(data=Dept_Table, aes(x=Var1, y=Freq, fill=Var2)) +
+  geom_bar(stat="identity", position=position_dodge()) +
+  theme(
+        panel.background = element_rect(fill = 'ivory1'),
+        plot.title = element_text(hjust = 0.5, size=15),
+        axis.text.y = element_text(size=8),
+        axis.title.x = element_text(color="forestgreen", vjust=-0.35, size=15),
+        axis.title.y = element_text(color="cadetblue" , vjust=0.35, size=15)   
+        )+
+  labs(fill = "Attrition") +
+  ggtitle("Department Attrition")+ 
+  xlab("Variables")
+
+ggplot(data=Role_Table, aes(x=Var1, y=Freq, fill=Var2)) +
+  geom_bar(stat="identity", position=position_dodge()) +
+theme(
+        panel.background = element_rect(fill = 'ivory1'),
+        plot.title = element_text(hjust = 0.5, size=15),
+        axis.text.y = element_text(size=8),
+        axis.title.x = element_text(color="forestgreen", vjust=-0.35, size=15),
+        axis.title.y = element_text(color="cadetblue" , vjust=0.35, size=15),
+        axis.text.x = element_text(angle = 90, hjust = 1)   
+        ) +
+  labs(fill = "Attrition") +
+  ggtitle("Job Role Attrition")+ 
+  xlab("Variables")
+
+
+ggplot(data=Marital_Table, aes(x=Var1, y=Freq, fill=Var2)) +
+  geom_bar(stat="identity", position=position_dodge()) +
+theme(
+        panel.background = element_rect(fill = 'ivory1'),
+        plot.title = element_text(hjust = 0.5, size=15),
+        axis.text.y = element_text(size=8),
+        axis.title.x = element_text(color="forestgreen", vjust=-0.35, size=15),
+        axis.title.y = element_text(color="cadetblue" , vjust=0.35, size=15)   
+        )  +
+  labs(fill = "Attrition") +
+  ggtitle("Attrition by Marital Status")+ 
+  xlab("Variables")
+
+
+ggplot(data=OverTime_Table, aes(x=Var1, y=Freq, fill=Var2)) +
+  geom_bar(stat="identity", position=position_dodge()) +
+theme(
+        panel.background = element_rect(fill = 'ivory1'),
+        plot.title = element_text(hjust = 0.5, size=15),
+        axis.text.y = element_text(size=8),
+        axis.title.x = element_text(color="forestgreen", vjust=-0.35, size=15),
+        axis.title.y = element_text(color="cadetblue" , vjust=0.35, size=15)   
+        )  +
+  labs(fill = "Attrition") +
+  ggtitle("Overtime Attrition")+ 
+  xlab("Variables")
+  
+ggplot(data=EnvirSat_Table, aes(x=Var1, y=Freq, fill=Var2)) +
+  geom_bar(stat="identity", position=position_dodge()) +
+theme(
+        panel.background = element_rect(fill = 'ivory1'),
+        plot.title = element_text(hjust = 0.5, size=15),
+        axis.text.y = element_text(size=8),
+        axis.title.x = element_text(color="forestgreen", vjust=-0.35, size=15),
+        axis.title.y = element_text(color="cadetblue" , vjust=0.35, size=15)   
+        )  +
+  labs(fill = "Attrition") +
+  ggtitle("Environment Satisfaction Attrition")+ 
+  xlab("Variables")
+
+
+ggplot(data=JobInv_Table, aes(x=Var1, y=Freq, fill=Var2)) +
+  geom_bar(stat="identity", position=position_dodge()) +
+theme(
+        panel.background = element_rect(fill = 'ivory1'),
+        plot.title = element_text(hjust = 0.5, size=15),
+        axis.text.y = element_text(size=8),
+        axis.title.x = element_text(color="forestgreen", vjust=-0.35, size=15),
+        axis.title.y = element_text(color="cadetblue" , vjust=0.35, size=15)   
+        )  +
+  labs(fill = "Attrition") +
+  ggtitle("Job Involvement Attrition")+ 
+  xlab("Variables")
+
+
+ggplot(data=JobLev_Table, aes(x=Var1, y=Freq, fill=Var2)) +
+  geom_bar(stat="identity", position=position_dodge()) +
+theme(
+        panel.background = element_rect(fill = 'ivory1'),
+        plot.title = element_text(hjust = 0.5, size=15),
+        axis.text.y = element_text(size=8),
+        axis.title.x = element_text(color="forestgreen", vjust=-0.35, size=15),
+        axis.title.y = element_text(color="cadetblue" , vjust=0.35, size=15)   
+        )  +
+  labs(fill = "Attrition") +
+  ggtitle("Job Level Attrition")+ 
+  xlab("Variables")
+
+ggplot(data=JobSat_Table, aes(x=Var1, y=Freq, fill=Var2)) +
+  geom_bar(stat="identity", position=position_dodge()) +
+theme(
+        panel.background = element_rect(fill = 'ivory1'),
+        plot.title = element_text(hjust = 0.5, size=15),
+        axis.text.y = element_text(size=8),
+        axis.title.x = element_text(color="forestgreen", vjust=-0.35, size=15),
+        axis.title.y = element_text(color="cadetblue" , vjust=0.35, size=15)   
+        )+  
+  labs(fill = "Attrition") +
+  ggtitle("Job Satisfaction Attrition")+ 
+  xlab("Variables")
+
+ggplot(data=Stock_Table, aes(x=Var1, y=Freq, fill=Var2)) +
+  geom_bar(stat="identity", position=position_dodge()) +
+theme(
+        panel.background = element_rect(fill = 'ivory1'),
+        plot.title = element_text(hjust = 0.5, size=15),
+        axis.text.y = element_text(size=8),
+        axis.title.x = element_text(color="forestgreen", vjust=-0.35, size=15),
+        axis.title.y = element_text(color="cadetblue" , vjust=0.35, size=15)   
+        )  +
+  labs(fill = "Attrition") +
+  ggtitle("Attrition by Stock Option Level")
+
+ggplot(data=WorkLife_Table, aes(x=Var1, y=Freq, fill=Var2)) +
+  geom_bar(stat="identity", position=position_dodge()) +
+  theme(
+        panel.background = element_rect(fill = 'ivory1'),
+        plot.title = element_text(hjust = 0.5, size=15),
+        axis.text.y = element_text(size=8),
+        axis.title.x = element_text(color="forestgreen", vjust=-0.35, size=15),
+        axis.title.y = element_text(color="cadetblue" , vjust=0.35, size=15)   
+        )  +
+  labs(fill = "Attrition") +
+  ggtitle("Work Life Balance Attrition")+ 
+  xlab("Variables")
+
+#Plotting Continuous Variable Variance by Attrition
+ggplot(data=EmpData2, aes(x=Age, fill=Attrition)) + 
+  ylab("Percent") +
+  geom_histogram(aes(y=(..count..)/sum(..count..)))+
+  ggtitle("Age Attrition") +
+  theme(plot.title = element_text(hjust = 0.5, size=15))
+
+ggplot(data=EmpData2, aes(x=DistanceFromHome, fill=Attrition)) + 
+  ylab("Percent") +
+  geom_histogram(aes(y=(..count..)/sum(..count..))) +
+  ggtitle("Distance From Home Attrition")+
+  theme(plot.title = element_text(hjust = 0.5, size=15))
+
+ggplot(data=EmpData2, aes(x=MonthlyRate, fill=Attrition)) + 
+  ylab("Percent") +
+  geom_histogram(aes(y=(..count..)/sum(..count..))) +
+  ggtitle("Monthly Rate Attrition")+
+  theme(plot.title = element_text(hjust = 0.5, size=15))
+
+ggplot(data=EmpData2, aes(x=TotalWorkingYears, fill=Attrition)) + 
+  ylab("Percent") +
+  geom_histogram(aes(y=(..count..)/sum(..count..))) +
+  ggtitle("Total Working Years Attrition")+
+  theme(plot.title = element_text(hjust = 0.5, size=15))
+
+ggplot(data=EmpData2, aes(x=YearsAtCompany, fill=Attrition)) + 
+  ylab("Percent") +
+  geom_histogram(aes(y=(..count..)/sum(..count..))) +
+  ggtitle("Years at Company Attrition")+
+  theme(plot.title = element_text(hjust = 0.5, size=15))
+
+ggplot(data=EmpData2, aes(x=YearsInCurrentRole, fill=Attrition)) + 
+  ylab("Percent") +
+  geom_histogram(aes(y=(..count..)/sum(..count..))) +
+  ggtitle("Years in Current Role Attrition")+
+  theme(plot.title = element_text(hjust = 0.5, size=15))
+
+ggplot(data=EmpData2, aes(x=YearsWithCurrManager, fill=Attrition)) + 
+  ylab("Percent") +
+  geom_histogram(aes(y=(..count..)/sum(..count..))) +
+  ggtitle("Years with Current Manager Attrition")+
+  theme(plot.title = element_text(hjust = 0.5, size=15))
+```
+
+####Things of Note:
+
+- The Departments that have the highest Attrition Rate are Sales (21.61%), HR (17.14%), and Research and Development  (13.34%).
+
+- The Attrition Rate increases the more an employee has to travel.
+- Attrition Rates are highest with employees who have no Stocks (StockLevel = 0) at (25.86%) or who have the most amount of stocks (Stock Level = 3) at (21.82%).
+- Looking at Attrition Rate for Divorcees vs the employees who are married or single, the Divorcees have the lowest Attrition Rate at 6.28%, while those who are married have a 14.15% Attrition Rate and the single employees have a 26.02% Attrition Rate. 
+- Looking at specific Job Roles of these Departments, it seems those with a leadership role (Directors, Managers, and Executives) have lower Attrition Rates than those who work under them (Representatives, Technicians, Research Scientists).
+- This is holds true for for Overtime as well since the Leadership roles do not qualify for Overtime have a much lower Attrition Rate (9.71%) compared to those who do qualify for Overtime in Non-Leadership roles (31.75%).
+- Work Life Balance has a negative correlation with Attrition Rate, that is the better the Balance (values  1-4) the lower the Attrition Rate.
+- Attrition Rate decreases as Job Involvement increases as well as when Job Satisfaction increases (negative correlation).  
+
+
+##Classifing Attrition: Naive Bayes Model
+```{r Naive Bayes}
+##https://rpubs.com/lytran/408065
+#Data Partitioning
+set.seed(7)
+trainIndex <- createDataPartition(EmpData2$Attrition, p=0.7)$Resample1
+train <- EmpData2[trainIndex, ]
+test <- EmpData2[-trainIndex, ]
+# Total Check
+print(table(EmpData2$Attrition))
+print(table(train$Attrition))
+print(table(test$Attrition))
+#Classifier
+ClassPrint <- function(model){
+  trainPrediction <- predict(model, newdata = train, type = "class")
+  trainTable <- table(train$Attrition, trainPrediction)
+  testPrediction <- predict(Classifier_Model, newdata=test, type="class")
+  testTable <- table(test$Attrition, testPrediction)
+  trainAcc <- (trainTable[1,1]+trainTable[2,2])/sum(trainTable)
+  testAcc <- (testTable[1,1]+testTable[2,2])/sum(testTable)
+  message("Contingency Table for Training Data")
+  print(trainTable)
+  message("Contingency Table for Test Data")
+  print(testTable)
+  message("Accuracy")
+  print(round(cbind(trainAccuracy=trainAcc, testAccuracy=testAcc),3))
+  message("Training Specificity")
+  print(trainTable[1,1]/(trainTable[1,1]+trainTable[2,1]))
+  message("Test Specificity")
+  print(testTable[1,1]/(testTable[1,1]+testTable[2,1]))
+  message("Training Sensitivity") 
+  print(trainTable[2,2]/(trainTable[1,2]+trainTable[2,2]))
+  message("Test Sensitivity") 
+  print(testTable[2,2]/(testTable[1,2]+testTable[2,2]))
+}
+#Classifier Models
+#Model1 (all Variables)
+NB_Classfier_1 <- naiveBayes(Attrition~., data=train)
+print(NB_Classfier_1)
+Classifier_Model <- NB_Classfier_1 
+ClassPrint(Classifier_Model)
+#Model2
+#Removed low variance columns (DailyRate, Department, Gender, PerformanceRating, RelationshipSatisfaction). Also removed columns that have a high correlation with multiple other columns (Age, MonthlyIncome, TotalWorkingYears).
+NB_Classfier_2 <- naiveBayes(Attrition~BusinessTravel+ DistanceFromHome+ Education+ EducationField+ EnvironmentSatisfaction+ HourlyRate+ JobInvolvement+ JobLevel+ JobRole+ JobSatisfaction+ MaritalStatus+ MonthlyRate+ NumCompaniesWorked+ OverTime+ PercentSalaryHike+ StockOptionLevel+ TrainingTimesLastYear+ WorkLifeBalance+ YearsAtCompany+ YearsInCurrentRole+ YearsSinceLastPromotion+ YearsWithCurrManager, data=train)
+print(NB_Classfier_2)
+Classifier_Model <- NB_Classfier_2 
+ClassPrint(Classifier_Model)
+#Model3
+#Only using Variables that are siginficant with respect to Difference in Attrition Rate (p-value < 0.05)
+NB_Classfier_3 <- naiveBayes(Attrition~BusinessTravel + Department + JobRole + MaritalStatus + OverTime + EnvironmentSatisfaction + JobInvolvement + JobLevel + JobSatisfaction + StockOptionLevel + WorkLifeBalance + Age + DistanceFromHome + TotalWorkingYears + YearsAtCompany + YearsInCurrentRole, data=train)
+print(NB_Classfier_3)
+Classifier_Model <- NB_Classfier_3
+ClassPrint(Classifier_Model)
+#Model4
+#Keeping everything from Model3
+#But, removing TotalWorkingYears and YearsAtCompany as they are both highly correlated with each other and can possibly be explained by Age and YearsInCurrentRole 
+NB_Classfier_4 <- naiveBayes(Attrition~BusinessTravel + Department + JobRole + MaritalStatus + OverTime + EnvironmentSatisfaction + JobInvolvement + JobLevel + JobSatisfaction + StockOptionLevel + WorkLifeBalance + Age + DistanceFromHome  + YearsInCurrentRole, data=train)
+print(NB_Classfier_4)
+Classifier_Model <- NB_Classfier_4 #Change for each new model
+ClassPrint(Classifier_Model)
+```
+
+####Model 4 is the best classification model and will be used for identifying attrition.
+- This model is 87.2% accurate on the training set and 89.7% accurate on the test set.
+The training and test set sensitivity (correctly estimate true attrition) is:
+- Training: 62.5%
+-     Test: 72.73% 
+- The training and test set specificity (correctly estimate employees who did not leave) is:
+- Training: 90.93% 
+-     Test: 92.11%
+
+##Predicting Attrition for Dataset with no Attrition
+```{r AttrPredic}
+#Predicting Attrition for Dataset with no Attrition
+PredictedAT <- predict(Classifier_Model,newdata = Attr_Data,type = 'class')
+Attr_Data$Attrition <- PredictedAT
+head(Attr_Data)
+dim(Attr_Data)
+#Exporting Results to .csv
+#write.csv(Attr_Data[,c(1,33)],"Case2PredictionsIbrahim Attrition.csv")
+```
+
+##Linear Regression: Predicting Montly Income
+```{r Linear Regression Monthly income}
+#Fit full linear model
+LinearModel <- lm(MonthlyIncome ~ ., train)
+summary(LinearModel)
+#Model Selction: Forward, Backward, Stepwise
+TrainControl <- trainControl(method = "cv", number = 10)
+# Backward Selection
+BackwardModel <- train(MonthlyIncome ~., data = train, method = "leapBackward", tuneGrid = data.frame(nvmax = 1:20), trControl = TrainControl)     
+BackwardModel$results #includes RMSE
+BackwardPredict <- predict(BackwardModel, newdata = test)
+test$BackwardPredict <- BackwardPredict
+# Forward Selection
+ForwardModel <- train(MonthlyIncome ~., data = train, method = "leapForward", tuneGrid = data.frame(nvmax = 1:20), trControl = TrainControl)
+ForwardModel$results #includes RMSE
+ForwardPredict <- predict(ForwardModel, newdata = test)
+test$ForwardPredict <- ForwardPredict
+# Stepwise Selection
+StepwiseModel <- train(MonthlyIncome ~., data = train, method = "leapSeq", tuneGrid = data.frame(nvmax = 1:20), trControl = TrainControl)
+StepwiseModel$results #includes RMSE
+StepwisePredict <- predict(StepwiseModel, newdata = test)
+test$StepwisePredict <- StepwisePredict
+#Calculating ASE stats for each model
+ASEholderForward = c()
+ASEholderBackward = c()
+ASEholderStepwise = c()
+ASEholderForward = sum((test$ForwardPredict - test$MonthlyIncome)^2)/length(test$MonthlyIncome)
+ASEholderBackward = sum((test$BackwardPredict - test$MonthlyIncome)^2)/length(test$MonthlyIncome)
+ASEholderStepwise = sum((test$StepwisePredict - test$MonthlyIncome)^2)/length(test$MonthlyIncome)
+#ASE Stats
+ASEholderForward
+ASEholderBackward
+ASEholderStepwise
+#RMSE Stats
+BackwardModel$results
+ForwardModel$results
+StepwiseModel$results
+
+
+#RMSE Results saved to table
+BackModelPlot <- BackwardModel$results
+ForModelPlot <- ForwardModel$results
+StepModelPlot <- StepwiseModel$results
+
+#Backward Model RMSE Plot
+ ggplot(BackModelPlot, aes(x=nvmax, y=RMSE)) +
+     geom_point() +
+   geom_label_repel(aes(label = round(RMSE,digits=2)),
+                  box.padding   = 0.35, 
+                  point.padding = 0.5,
+                  vjust = -5,
+                  hjust = -0.05,
+                  segment.color = 'red',
+                  size = 4) +
+  theme(plot.title = element_text(hjust = 0.5, size=15,color="Steelblue"),
+        axis.text.y = element_text(size=13),
+        axis.text.x = element_text(size=13),
+        axis.title.x = element_text(color="Steelblue", vjust=-0.35, size=15),
+        axis.title.y = element_text(color="Steelblue" , vjust=0.35, size=15))+
+   geom_line( color="steelblue")+ 
+  ggtitle("Backward Selection Model: RMSE vs Max Number of Predictors") + 
+  xlab("Maximum Number of Predictors")
+
+
+ #Forward Model RMSE Plot
+ggplot(ForModelPlot, aes(x=nvmax, y=RMSE)) +
+     geom_point() +
+   geom_label_repel(aes(label = round(RMSE,digits=2)),
+                  box.padding   = 0.35, 
+                  point.padding = 0.5,
+                  vjust = -5,
+                  hjust = -0.05,
+                  segment.color = 'red',
+                  size = 4) +
+  theme(plot.title = element_text(hjust = 0.5, size=15,color="Steelblue"),
+        axis.text.y = element_text(size=13),
+        axis.text.x = element_text(size=13),
+        axis.title.x = element_text(color="Steelblue", vjust=-0.35, size=15),
+        axis.title.y = element_text(color="Steelblue" , vjust=0.35, size=15))+
+   geom_line( color="steelblue")+ 
+  ggtitle("Forward Selection Model: RMSE vs Max Number of Predictors") + 
+  xlab("Maximum Number of Predictors")
+
+
+#Stepwise Model RMSE Plot
+ggplot(StepModelPlot, aes(x=nvmax, y=RMSE)) +
+     geom_point() +
+   geom_label_repel(aes(label = round(RMSE,digits=2)),
+                  box.padding   = 0.35, 
+                  point.padding = 0.5,
+                  vjust = -5,
+                  hjust = -0.05,
+                  segment.color = 'red',
+                  size = 4) +
+  theme(plot.title = element_text(hjust = 0.5, size=15,color="Steelblue"),
+        axis.text.y = element_text(size=13),
+        axis.text.x = element_text(size=13),
+        axis.title.x = element_text(color="Steelblue", vjust=-0.35, size=15),
+        axis.title.y = element_text(color="Steelblue" , vjust=0.35, size=15))+
+   geom_line( color="steelblue")+ 
+  ggtitle("Stepwise Selection Model: RMSE vs Max Number of Predictors") + 
+  xlab("Maximum Number of Predictors")
+
+
+
+```
+####The Backward Selection Model has the lowest RMSE with the highest R2 at 11 Predictors. We will be going forward with this model to do predictions
+
+##Predicting Montly Income for Validation Dataset
+```{r IncomePredict}
+#Predicting Income for Validation Data
+Income_Predictions <- predict(BackwardModel, newdata = Income_Data)
+Income_Data$MonthlyIncome <- Income_Predictions
+head(Income_Data)
+dim(Income_Data)
+#Exporting Results to .csv
+#write.csv(Income_Data[,c(1,33)],"Case2PredictionsIbrahim Salary.csv")
+```
